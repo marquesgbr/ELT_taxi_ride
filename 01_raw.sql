@@ -1,0 +1,1 @@
+-- Ler parquet e Criar tabela bruta no banco

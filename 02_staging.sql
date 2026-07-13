@@ -1,0 +1,1 @@
+-- Ler tabela bruta e fazer investigação/tratamento dos dados

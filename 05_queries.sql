@@ -1,0 +1,1 @@
+-- Consultas na tabela fato para responder perguntas relevantes
