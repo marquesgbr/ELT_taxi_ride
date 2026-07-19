@@ -1,0 +1,7 @@
+## Duckdb e relacionados
+*.duckdb
+*.parquet
+*.wal
+
+## Executaveis
+*.exe
