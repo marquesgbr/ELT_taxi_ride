@@ -5,3 +5,6 @@
 
 ## Executaveis
 *.exe
+
+## IDE
+.vscode
