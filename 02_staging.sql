@@ -125,6 +125,8 @@ SELECT
     SUM(CASE WHEN congestion_surcharge < 0 THEN 1 ELSE 0 END) AS congestion_surcharge_negativa,
     SUM(CASE WHEN Airport_fee < 0 THEN 1 ELSE 0 END) AS Airport_fee_negativa,
     
+    SUM(CASE WHEN PULocationID < 1 OR PULocationID > 265 THEN 1 ELSE 0 END) AS PULocationID_invalido,
+    SUM(CASE WHEN DOLocationID < 1 OR DOLocationID > 265 THEN 1 ELSE 0 END) AS DOLocationID_invalido,
     SUM(CASE WHEN tpep_dropoff_datetime < tpep_pickup_datetime THEN 1 ELSE 0 END) AS dropoff_antes_pickup,
     -- Consideramos que uma viagem ocorre em janeiro de 2024 se, e somente se, partida e chegada ocorrerem dentro desse mês
     SUM(CASE WHEN tpep_pickup_datetime < '2024-01-01' THEN 1 ELSE 0 END) AS pickup_antes_2024_01_01,
@@ -139,23 +141,41 @@ SELECT * FROM count_not_feasiable_limits;
 -- Investigar corridas com qtd de passageiros inconsistentes 
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count > 6;
--- Com exceção de 1 corrida, todas marcadas como Negotiated fare (5), possivelmente motoristas 
--- que aceitaram mais passageiros do que o permitido sob certas condições.
+/*Com exceção de 1 corrida, todas marcadas como Negotiated fare (5), possivelmente motoristas 
+que aceitaram mais passageiros do que o permitido sob certas condições.
+Vamos manter essas linhas na tabela fato.
+*/
 
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count >= 6 AND RatecodeID <> 5;
--- Maioria marcados como Standard Rate (1), possivelmente motoristas 
--- que aceitaram mais passageiros do que o permitido sem condições adicionais.
+/* Maioria marcados como Standard Rate (1), possivelmente motoristas 
+que aceitaram mais passageiros do que o permitido sem condições adicionais.
+Vamos manter essas linhas na tabela fato.
+*/
+
+SELECT * FROM raw_yellow_tripdata
+WHERE passenger_count = 0;
+-- Para essas corridas, também vamos fazer uma imputação usando a mediana da variável, pois quaisquer outra inconsistências
+-- de quantia da corrida, ratecode, localização, tempo, etc. serão tratadas pelas demais regras de limpeza. 
+
+/*
+Mais linhas com valores de tarifa negativos, que podem não ter uma duplicata, podem ser na verdade
+valores válidos, mas o aparelho que registra a viagem fez uma inversão de sinal. 
+*/
+CREATE OR REPLACE TABLE negative_amounts AS
+SELECT * FROM raw_yellow_tripdata
+WHERE fare_amount < 0 OR tip_amount < 0 OR total_amount < 0;
+
+SELECT * FROM negative_amounts;
+/* 
+37k linhas das quais sabemos que cerca de 30k são duplicatas parciais de outra linha com o mesmo valor positivo, nos restando 7k
+sem duplicatas parciais, que podem ser valores válidos ou não dependendendo do caso (como um erro de registro do 
+taxímetro ou outro fator).
+Conclusão: Para todos os efeitos, vamos desconsiderar essas linhas na tabela fato pela mesma 
+regra das duplicatas parciais, que é manter apenas os valores positivos.
+*/
 
 
-
-
-
-
-/* Checar se linhas com valores negativos são na verdade valores válidos, mas o aparelho que registra a 
-viagem fez uma inversão de sinal. Caso isso seja verdade, a soma dos valores absolutos de taxas + valor de tarifa deve 
-ser igual ao valor absoluto total da corrida. 
-Nesse caso, os valores negativos devem ser convertidos para positivos antes de serem utilizados. */
 
 
 /* 
