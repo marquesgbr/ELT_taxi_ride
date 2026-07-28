@@ -1,29 +1,41 @@
--- Ler tabela bruta do banco e fazer investigação/tratamento dos dados (profiling e cleanining)
+-- Ler tabela bruta do banco e fazer investigação dos dados (profiling)
 
 /* 
     1. Sumarizar estatísticas de profiling 
     2. Checar duplicatas
     3. Checar valores nulos
-    4. Checar valores inconsistentes (negativos, passageiros > 5, datetime de dropoff antes do pickup, etc)
-    5. Checar outliers (valores muito discrepantes)
+    4. Checar valores inconsistentes e outliers (negativos, passageiros > 5, datetime de dropoff antes do pickup, etc)
 */
 
-/* Investigação do formato da tabela */
+/* ---- Investigação do formato da tabela ---- */
 SELECT * FROM raw_yellow_tripdata LIMIT 10;
 
-CREATE OR REPLACE TABLE profilling_stats_summary AS SELECT * FROM (SUMMARIZE raw_yellow_tripdata);
+CREATE OR REPLACE TABLE profiling_stats_summary AS SELECT * FROM (SUMMARIZE raw_yellow_tripdata);
 
 -- Ler estatísticas de profiling para basear as regras de limpeza
-SELECT * FROM profilling_stats_summary;
+SELECT * FROM profiling_stats_summary;
 
+/*
+mta_tax, improvement_surcharge e congestion_surcharge são taxas que podem ou não ser cobradas, mas quando são cobradas, possuem valor fixo
+segundo o site oficial da cidade de Nova Iorque (https://www.nyc.gov/site/tlc/passengers/taxi-fare.page).
+MTA Tax: $0.50
+Improvement Surcharge: $1.00
+Congestion Surcharge (Yellow Taxi): $2.50
 
-/* Checagem de duplicatas */
+Dos dados de profiling_stats_summary, podemos ver que Airport_fee também é uma taxa que pode ou não ser cobrada, mas quando é, possui valor fixo de $1.75.
+Conclusão: Usaremos essas informações para checar inconsistências de valores e também para fazer imputação de valores nulos. 
+Isso também tira a necessidade de calcular IQR para essas colunas, pois não são variáveis contínuas, mas sim taxas fixas que podem ou não ser cobradas.
+*/
+SELECT * FROM raw_yellow_tripdata
+WHERE mta_tax NOT IN (0, 0.5, -0.5) OR improvement_surcharge NOT IN (0, 1, -1) OR airport_fee NOT IN (0, 1.75, -1.75) OR congestion_surcharge NOT IN (0, 2.5, -2.5);
+
+/* ---- Checagem de duplicatas ---- */
 
 -- Duplicatas exatas (todas as colunas iguais)
 SELECT *, COUNT(*) as qtd_duplicatas
 FROM raw_yellow_tripdata
-GROUP BY *
-HAVING COUNT(*) > 1 ORDER BY qtd_duplicatas DESC;
+GROUP BY ALL
+HAVING qtd_duplicatas > 1 ORDER BY qtd_duplicatas DESC;
 
 -- Sem linhas duplicatas exatas
 
@@ -79,9 +91,53 @@ pois podem ter propósitos diferentes, como análise de fraude ou estorno de val
 */
 
 
-/* Valores nulos (colunas que aparecem com nulos no profilling_stats_summary) */
+/* ---- Valores nulos (colunas que aparecem com nulos no profilling_stats_summary) ---- */
+
 SELECT * FROM raw_yellow_tripdata
-WHERE payment_type = 0;
+WHERE payment_type = 0 AND PULocationID in (132, 138);
+-- 140162 linhas
+
+SELECT * FROM raw_yellow_tripdata
+WHERE payment_type = 0 AND ROUND((total_amount - fare_amount - tip_amount - tolls_amount - extra - improvement_surcharge - mta_tax), 2) = 2.5;
+-- 125088 linhas
+
+SELECT * FROM raw_yellow_tripdata
+WHERE payment_type = 0 AND ROUND((total_amount - fare_amount - tip_amount - tolls_amount - extra), 2) = mta_tax + improvement_surcharge;
+-- 14239 linhas
+-- Check: 140162 != 125088 + 14239 = 139327; 835 linhas que não se encaixam em nenhum dos dois casos acima.
+
+/*
+Nessas consultas houve a necessidade de usar a função ROUND() para arredondar os valores, pois, em algumas instâncias, poderíamos 
+fazer a conciliação financeira manualmente e verificar que o valor aparente de total_amount bate com a soma dos valores aparentes das outras taxas, mas ao
+criarmos a condição na cláusula WHERE, a condição não era reconhecida como verdadeira para essas mesmas linhas. 
+Para evitar que perdas de frações invisíveis da subtração afetassem a condição, usou-se a função ROUND() para arredondar os 
+valores para 2 casas decimais, que é o padrão usado nesse banco de dados. 
+Conclusão: Para evitar esse tipo de erro futuramente, faremos uma conversão de tipo de DOUBLE para DECIMAL(10,2) para todas as colunas do tipo DOUBLE.
+*/
+
+
+/* 
+Corridas com payment_type = 0 são corridas com pagamento em dinheiro, mas que não foram registradas corretamente. 
+A maioria delas (125k) tem total_amount igual a soma das outras taxas + 2.5 (possivelmente a taxa de congestionamento) e outras 14k não seguem essa regra, possuindo apenas as taxas  
+como unicas taxas mta_tax e improvement_surcharge (que sempre aparecem preenchidas), nesses casos: total_amount = fare_amount + tip_amount + tolls_amount + extra + 1.5.
+MTA_tax e improvement_surcharge somadas dão 1.5.
+
+Conclusão: Vamos fazer a imputação de acordo com a regra de negócio. 
+Onde:
+Congestion_surcharge = 2.5 e Airport_fee = 0 para as linhas que seguem a regra 1 e 
+Congestion_surcharge = 0 e Airport_fee = 0 para as linhas que seguem a regra 2. 
+*/
+
+SELECT * FROM raw_yellow_tripdata
+WHERE payment_type = 0 
+AND ROUND((total_amount - fare_amount - tip_amount - tolls_amount - extra), 2) <> mta_tax + improvement_surcharge 
+AND ROUND((total_amount - fare_amount - tip_amount - tolls_amount - extra - improvement_surcharge - mta_tax), 2) <> 2.5;
+/*
+835 linhas que não se encaixam em nenhum dos dois casos acima, ou seja, não possuem a taxa de congestionamento e também não possuem apenas as taxas de
+MTA_tax e improvement_surcharge. Além disso, muitas delas aparecem com distância de viagem igual a 0, o que não é possível.
+Conclusão: Vamos rejeitar essas instâncias pois possuem uma inconsistância considerável e não são facilmente tratáveis (além de serem um número muito pequeno).
+*/
+
 
 CREATE OR REPLACE TABLE count_rows_nulls AS
 SELECT 
@@ -101,12 +157,12 @@ SELECT * FROM count_rows_nulls;
 /*
 Conclusão: Fazer imputação de valores nulos na coluna de passenger_count com a mediana da variável.
 Substituir RatecodeID nulo por 99 de acordo com o dicionário de dados.
-O restante das colunas são candidatas a serem rejeitadas da tabela fato por já não terem 
-informações tão cruciais para o propósito do modelo final, que visa analisar padrões de comportamento e tendências.
+Na flag de store and fwd, vamos fazer imputação por moda. 
+Por convenção e praticidade, também realizaremos uma conversão de tipo da flag de store and fwd para booleano, onde 'Y' será True e 'N' será False 
 */
 
 
-/* Valores inconsistentes */
+/* ---- Valores inconsistentes ---- */
 
 CREATE OR REPLACE TABLE count_not_feasiable_limits AS
 SELECT
@@ -136,27 +192,40 @@ SELECT
 FROM raw_yellow_tripdata;
 
 SELECT * FROM count_not_feasiable_limits;
-
+/*
+Conclusão: 
+Considerando a quantidade muito variada de valores inconsistentes e a necessidade de manter a qualidade dos dados, vamos fazer a
+limpeza desses valores muito discrepantes (Ex.: 312722.3 milhas de viagem em trip_distance e 5000 de fare_amount), mantendo 
+apenas os valores que estiverem dentro do intervalo de 1.5*IQR para cada uma. 
+Assim a distribuição dos dados não ficará tão distorcida por outliers extremos.
+Uma observação para trip_distance, é que ela precisa ser maior que 0 ao contrário dos outros valores contínuos, caso contrário rejeitamos a instância.
+Inconsistências de localização e tempo também serão tratadas como regra de limpeza, rejeitando as instâncias que não se encaixarem nas 7 últimas regras citadas acima.
+*/
 
 -- Investigar corridas com qtd de passageiros inconsistentes 
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count > 6;
-/*Com exceção de 1 corrida, todas marcadas como Negotiated fare (5), possivelmente motoristas 
+/*
+Com exceção de 1 corrida, todas marcadas como Negotiated fare (5), possivelmente motoristas 
 que aceitaram mais passageiros do que o permitido sob certas condições.
-Vamos manter essas linhas na tabela fato.
+Conclusão: Vamos manter essas linhas na tabela fato.
 */
 
 SELECT * FROM raw_yellow_tripdata
-WHERE passenger_count >= 6 AND RatecodeID <> 5;
-/* Maioria marcados como Standard Rate (1), possivelmente motoristas 
+WHERE passenger_count >= 6
+ORDER BY passenger_count DESC, RatecodeID DESC;
+/* 
+Maioria marcados como Standard Rate (1), possivelmente motoristas 
 que aceitaram mais passageiros do que o permitido sem condições adicionais.
-Vamos manter essas linhas na tabela fato.
+Conclusão: Vamos manter essas linhas na tabela fato.
 */
 
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count = 0;
--- Para essas corridas, também vamos fazer uma imputação usando a mediana da variável, pois quaisquer outra inconsistências
--- de quantia da corrida, ratecode, localização, tempo, etc. serão tratadas pelas demais regras de limpeza. 
+/* 
+Conclusão: Para essas corridas, também vamos fazer uma imputação usando a mediana da variável, pois quaisquer outra inconsistências
+de quantia da corrida, ratecode, localização, tempo, etc. serão tratadas pelas demais regras de limpeza. 
+*/
 
 /*
 Mais linhas com valores de tarifa negativos, que podem não ter uma duplicata, podem ser na verdade
@@ -171,53 +240,12 @@ SELECT * FROM negative_amounts;
 37k linhas das quais sabemos que cerca de 30k são duplicatas parciais de outra linha com o mesmo valor positivo, nos restando 7k
 sem duplicatas parciais, que podem ser valores válidos ou não dependendendo do caso (como um erro de registro do 
 taxímetro ou outro fator).
+
 Conclusão: Para todos os efeitos, vamos desconsiderar essas linhas na tabela fato pela mesma 
 regra das duplicatas parciais, que é manter apenas os valores positivos.
 */
 
 
-
-
-/* 
-Calcular quartis para as colunas numericas contínuas e criar tabela com os limites de IQR de cada uma.
-Formato de uma tabela de parâmetros de linha única.
-Colunas a serem analisadas:
-    - trip_distance
-    - fare_amount
-    - tip_amount
-    - total_amount
-*/
-CREATE OR REPLACE TABLE iqr_values AS
-WITH limites AS (
-    SELECT 
-        -- Fare Amount
-        QUANTILE_CONT(fare_amount, 0.25) AS q1_fare_amount,
-        QUANTILE_CONT(fare_amount, 0.75) AS q3_fare_amount,
-        (QUANTILE_CONT(fare_amount, 0.75) - QUANTILE_CONT(fare_amount, 0.25)) * 1.5 AS iqr_fare_amount,
-
-        -- Trip Distance
-        QUANTILE_CONT(trip_distance, 0.25) AS q1_trip_distance,
-        QUANTILE_CONT(trip_distance, 0.75) AS q3_trip_distance,
-        (QUANTILE_CONT(trip_distance, 0.75) - QUANTILE_CONT(trip_distance, 0.25)) * 1.5 AS iqr_trip_distance,
-
-        -- Tip Amount
-        QUANTILE_CONT(tip_amount, 0.25) AS q1_tip_amount,
-        QUANTILE_CONT(tip_amount, 0.75) AS q3_tip_amount,
-        (QUANTILE_CONT(tip_amount, 0.75) - QUANTILE_CONT(tip_amount, 0.25)) * 1.5 AS iqr_tip_amount,
-
-        -- Total Amount
-        QUANTILE_CONT(total_amount, 0.25) AS q1_total_amount,
-        QUANTILE_CONT(total_amount, 0.75) AS q3_total_amount,
-        (QUANTILE_CONT(total_amount, 0.75) - QUANTILE_CONT(total_amount, 0.25)) * 1.5 AS iqr_total_amount,
-
-    FROM raw_yellow_tripdata
-    WHERE 
-)
-SELECT * FROM limites;
-
-
-
---- Aqui removemos as duplicatas aplicando as regras de limpeza
-CREATE OR REPLACE TABLE staging_limpa AS 
-SELECT * FROM raw_yellow_tripdata
-WHERE (regras);
+-- Calculo de mediana e moda para imputação
+SELECT MEDIAN(passenger_count) AS mediana_passageiros, MODE() WITHIN GROUP (ORDER BY store_and_fwd_flag) AS moda_store_and_fwd_flag
+FROM raw_yellow_tripdata;
