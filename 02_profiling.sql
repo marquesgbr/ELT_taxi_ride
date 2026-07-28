@@ -37,7 +37,7 @@ FROM raw_yellow_tripdata
 GROUP BY ALL
 HAVING qtd_duplicatas > 1 ORDER BY qtd_duplicatas DESC;
 
--- Sem linhas duplicatas exatas
+-- Sem linhas com duplicatas exatas
 
 
 -- Duplicatas parciais 
