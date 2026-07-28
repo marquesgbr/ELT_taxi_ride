@@ -1,1 +1,0 @@
--- Dimensões geradas do staging
