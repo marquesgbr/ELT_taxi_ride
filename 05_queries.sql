@@ -1,3 +1,0 @@
--- Consultas na tabela fato para responder perguntas relevantes
--- responder perguntas relevantes sobre demanda, tempo, 
--- localização, pagamentos, preços ou eficiência das viagens
