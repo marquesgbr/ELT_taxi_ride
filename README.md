@@ -1,3 +1,13 @@
+## Equipe e Papéis
+1. Gabriel Marques
+    - Modelagem Dimensional
+    - Perfilamento e Limpeza
+    - Criação de Consultas de BI
+2. Getúlio Junqueira de Queiroz Lima (Ausente)
+3. cleyton esley gomes ferreira (Ausente)
+4. Luiz Miguel Alves Venancio (Ausente)
+5. Thales Afonso Dornelas Gomes (Ausente)
+
 ## Visão Geral do Projeto
 
 Este projeto foi desenvolvido com o objetivo de processar dados públicos de corridas de táxi de Nova York (TLC Yellow Taxi - Jan/2024), transformando arquivos brutos (Parquet/CSV) com milhões de linhas em um Esquema Estrela (Star Schema). Esse modelo visa fornecer uma base confiável para consultas analíticas (OLAP), respondendo a perguntas de negócio sobre mobilidade urbana, eficiência de frota e comportamento financeiro.
@@ -153,7 +163,7 @@ Vamos excluir da análise variáveis que são somente taxas fixas ou sem muito s
 
 Com isso em mente, essas colunas não farão parte da tabela fato:
 
-1. **improvement_surcharge:** taxa fixa e engessada do governo que não muda nada na análise
+1. **improvement_surcharge:** taxa fixa e engessada do governo que não agrega valor na análise
 2. **extra:** cobranças extras que não sabemos de onde vem ou para que servem
 
 ### Valores Nulos
