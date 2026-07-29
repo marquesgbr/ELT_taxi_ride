@@ -139,7 +139,6 @@ SELECT
 FROM velocidade_corridas
 GROUP BY hour_pickup
 ORDER BY hour_pickup;
--- R: Horários das 14h-17h
 
 
 /*
@@ -175,7 +174,7 @@ SELECT
     receita_do_dia,
     receita_dia_anterior,
     
-    -- 3. Cálculo da Variação Percentual
+    -- Cálculo da variação percentual
     ROUND(((receita_do_dia - receita_dia_anterior) / NULLIF(receita_dia_anterior, 0)) * 100, 2) AS variacao_dod_pct,
     
     receita_acumulada_mes
