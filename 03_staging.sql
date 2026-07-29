@@ -4,8 +4,10 @@
 /* 
 Calcular quartis para as colunas numericas contínuas que estarão na tabela fato e criar tabela com os limites de IQR de cada uma.
 Formato de uma tabela de parâmetros de linha única. 
-Tolls_amount foi excluída por nem sempre precisar ser paga, portanto resultaria num IQR = 0.
-Colunas a serem analisadas:
+Tolls_amount foi excluída por nem sempre precisar ser paga e seu q1 = q3 = 6.94 quando consideramos somente tolls_amount > 0, portanto 
+resultaria num IQR = 0 em ambos os casos.
+
+Colunas a serem usadas para cálculo de IQR:
     - trip_distance
     - fare_amount
     - tip_amount
@@ -35,7 +37,7 @@ WITH boundaries AS (
         (QUANTILE_CONT(total_amount, 0.75) - QUANTILE_CONT(total_amount, 0.25)) * 1.5 AS iqr_total_amount,
 
     FROM raw_yellow_tripdata
-    WHERE fare_amount > 0 AND trip_distance > 0 AND tip_amount >= 0 AND total_amount > 0
+    WHERE fare_amount > 0 AND trip_distance > 0 AND tip_amount >= 0 AND total_amount > 0 AND tolls_amount > 0
 )
 SELECT * FROM boundaries;
 
@@ -51,7 +53,7 @@ Recapitulação de decisões da fase de perfilamento:
 2. Rejeitar linhas com valores negativos e manter apenas os positivos para análise. 
 3. Vamos fazer a imputação de valores nulos (linhas onde payment_type = 0) de acordo com a regra de negócio. 
     Regra 1: total_amount = fare_amount + tip_amount + extra + tolls_amount + mta_tax + improvement_surcharge + 2.5 (taxa de congestionamento)
-    Regra 2: total_amount = fare_amount + tip_amount + extra + tolls_amount + mta_tax + improvement_surcharge + 0 (somente as taxas de MTA_tax e improvement_surcharge)
+    Regra 2: total_amount = fare_amount + tip_amount + extra + tolls_amount + mta_tax + improvement_surcharge + 0 (sem acréscimo de taxa)
     Regra 3: Rejeitar linhas que não se encaixam em nenhuma das duas regras acima.
     Onde:
     Congestion_surcharge = 2.5 e Airport_fee = 0 para as linhas que seguem a regra 1 e 

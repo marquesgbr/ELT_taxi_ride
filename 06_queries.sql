@@ -8,7 +8,6 @@ Query inicial: olhando as primeiras linhas da tabela fato para ter uma ideia do 
 */
 SELECT * FROM fact_tb_trips LIMIT 20;
 
-
 /*
 Pergunta: Quais são os melhores dias da semana e horários para rodar, visando maximizar o faturamento por minuto trabalhado?
 Query: Rentabilidade média por hora do dia e dia da semana
@@ -107,9 +106,9 @@ SELECT
     COUNT(*) AS total_corridas,
     ROUND(SUM(f.total_amount), 2) AS faturamento_total,
     ROUND(AVG(f.total_amount), 2) AS ticket_medio,
-    -- Métrica de Eficiência Monetária por Milha Rodada ($/milha)
+    -- Ganho por milha rodada ($/milha)
     ROUND(SUM(f.total_amount) / NULLIF(SUM(f.trip_distance), 0), 2) AS receita_por_milha,
-    -- Métrica de Eficiência Monetária por Minuto em Trânsito ($/minuto)
+    -- Ganho por minuto em trânsito ($/minuto)
     ROUND(SUM(f.total_amount) / NULLIF(SUM(f.duration_minutes), 0), 2) AS receita_por_minuto
 FROM fact_tb_trips f
 JOIN dim_location loc ON f.id_location_pickup = loc.id_location
@@ -184,25 +183,25 @@ FROM analise_crescimento
 ORDER BY full_date;
 
 /*
-Pergunta: Quais são as 3 rotas mais procuradas de manhã (ida pro trabalho) comparadas com as 3 mais procuradas à noite (volta pra casa)?
+Pergunta: Quais são as rotas mais procuradas de manhã (ida pro trabalho) comparadas com as mais procuradas à noite (volta pra casa)?
 Query: Top 3 rotas mais populares particionadas por turno (Manhã vs Noite)
 */
 WITH rotas_por_turno AS (
     SELECT 
         CASE 
-            WHEN f.hora_pickup BETWEEN 6 AND 10 THEN '1. Rush da Manhã (06h-10h)'
-            WHEN f.hora_pickup BETWEEN 16 AND 20 THEN '2. Rush da Noite (16h-20h)'
+            WHEN f.hour_pickup BETWEEN 6 AND 10 THEN '1. Rush da Manhã (06h-10h)'
+            WHEN f.hour_pickup BETWEEN 16 AND 20 THEN '2. Rush da Noite (16h-20h)'
             ELSE '3. Outros Horários'
         END AS turno,
-        loc_pick.zona AS zona_origem,
-        loc_drop.zona AS zona_destino,
+        loc_pick.zone AS zona_origem,
+        loc_drop.zone AS zona_destino,
         COUNT(*) AS volume_viagens,
-        ROUND(AVG(f.duracao_minutos), 1) AS tempo_medio_rota
-    FROM fato_viagens f
-    JOIN dim_localizacao loc_pick ON f.id_localizacao_pickup = loc_pick.id_localizacao
-    JOIN dim_localizacao loc_drop ON f.id_localizacao_dropoff = loc_drop.id_localizacao
-    WHERE f.hora_pickup BETWEEN 6 AND 10 OR f.hora_pickup BETWEEN 16 AND 20
-    GROUP BY turno, loc_pick.zona, loc_drop.zona
+        ROUND(AVG(f.duration_minutes), 1) AS tempo_medio_rota
+    FROM fact_tb_trips f
+    JOIN dim_location loc_pick ON f.id_location_pickup = loc_pick.id_location
+    JOIN dim_location loc_drop ON f.id_location_dropoff = loc_drop.id_location
+    WHERE f.hour_pickup BETWEEN 6 AND 10 OR f.hour_pickup BETWEEN 16 AND 20
+    GROUP BY turno, loc_pick.zone, loc_drop.zone
 ),
 ranking_rotas AS (
     SELECT 

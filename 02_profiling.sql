@@ -1,7 +1,7 @@
 -- Ler tabela bruta do banco e fazer investigação dos dados (profiling)
 
 /* 
-    1. Sumarizar estatísticas de profiling 
+    1. Analisar estatísticas gerais 
     2. Checar duplicatas
     3. Checar valores nulos
     4. Checar valores inconsistentes e outliers (negativos, passageiros > 5, datetime de dropoff antes do pickup, etc)
@@ -28,6 +28,14 @@ Isso também tira a necessidade de calcular IQR para essas colunas, pois não s�
 */
 SELECT * FROM raw_yellow_tripdata
 WHERE mta_tax NOT IN (0, 0.5, -0.5) OR improvement_surcharge NOT IN (0, 1, -1) OR airport_fee NOT IN (0, 1.75, -1.75) OR congestion_surcharge NOT IN (0, 2.5, -2.5);
+
+-- Valores únicos de airport_fee
+SELECT DISTINCT airport_fee FROM raw_yellow_tripdata;
+
+
+
+
+
 
 /* ---- Checagem de duplicatas ---- */
 
@@ -71,9 +79,9 @@ HAVING COUNT(*) > 1
 ORDER BY qtd_duplicatas DESC;
 
 
-SELECT * FROM partial_dupe_rows;
 -- 30k pares de linhas com valores exatos de tempo e localização para DO e PU e distancia, mas valores montetários que diferem apenas no sinal. 
 -- Isso pode ser um erro de registro do aparelho que registra a corrida ou algum estorno/contestação. 
+SELECT * FROM partial_dupe_rows;
 
 -- Corridas contestadas ou que houve estorno 
 SELECT * FROM partial_dupe_rows
@@ -89,6 +97,8 @@ Conclusão: Rejeitar linhas com valores negativos e manter apenas os positivos p
 Lidar com payment_type 3 e 4 (contestadas ou estornadas) de forma separada nas consultas, 
 pois podem ter propósitos diferentes, como análise de fraude ou estorno de valores.
 */
+
+
 
 
 /* ---- Valores nulos (colunas que aparecem com nulos no profilling_stats_summary) ---- */
@@ -116,8 +126,9 @@ Conclusão: Para evitar esse tipo de erro futuramente, faremos uma conversão de
 */
 
 
+
 /* 
-Corridas com payment_type = 0 são corridas com pagamento em dinheiro, mas que não foram registradas corretamente. 
+Corridas com payment_type = 0 são corridas com pagamentos feitos por um sistema externo que não é o taxímetro tradicional. 
 A maioria delas (125k) tem total_amount igual a soma das outras taxas + 2.5 (possivelmente a taxa de congestionamento) e outras 14k não seguem essa regra, possuindo apenas as taxas  
 como unicas taxas mta_tax e improvement_surcharge (que sempre aparecem preenchidas), nesses casos: total_amount = fare_amount + tip_amount + tolls_amount + extra + 1.5.
 MTA_tax e improvement_surcharge somadas dão 1.5.
@@ -162,6 +173,9 @@ Por convenção e praticidade, também realizaremos uma conversão de tipo da fl
 */
 
 
+
+
+
 /* ---- Valores inconsistentes ---- */
 
 CREATE OR REPLACE TABLE count_not_feasiable_limits AS
@@ -191,7 +205,7 @@ SELECT
     SUM(CASE WHEN tpep_dropoff_datetime > '2024-02-01' THEN 1 ELSE 0 END) AS dropoff_apos_2024_02_01
 FROM raw_yellow_tripdata;
 
-SELECT * FROM count_not_feasiable_limits;
+SELECT * FROM count_not_feasible_limits;
 /*
 Conclusão: 
 Considerando a quantidade muito variada de valores inconsistentes e a necessidade de manter a qualidade dos dados, vamos fazer a
@@ -202,6 +216,8 @@ Uma observação para trip_distance, é que ela precisa ser maior que 0 ao contr
 Inconsistências de localização e tempo também serão tratadas como regra de limpeza, rejeitando as instâncias que não se encaixarem nas 7 últimas regras citadas acima.
 */
 
+
+
 -- Investigar corridas com qtd de passageiros inconsistentes 
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count > 6;
@@ -210,6 +226,7 @@ Com exceção de 1 corrida, todas marcadas como Negotiated fare (5), possivelmen
 que aceitaram mais passageiros do que o permitido sob certas condições.
 Conclusão: Vamos manter essas linhas na tabela fato.
 */
+
 
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count >= 6
@@ -220,12 +237,14 @@ que aceitaram mais passageiros do que o permitido sem condições adicionais.
 Conclusão: Vamos manter essas linhas na tabela fato.
 */
 
+
 SELECT * FROM raw_yellow_tripdata
 WHERE passenger_count = 0;
 /* 
 Conclusão: Para essas corridas, também vamos fazer uma imputação usando a mediana da variável, pois quaisquer outra inconsistências
 de quantia da corrida, ratecode, localização, tempo, etc. serão tratadas pelas demais regras de limpeza. 
 */
+
 
 /*
 Mais linhas com valores de tarifa negativos, que podem não ter uma duplicata, podem ser na verdade
@@ -244,8 +263,3 @@ taxímetro ou outro fator).
 Conclusão: Para todos os efeitos, vamos desconsiderar essas linhas na tabela fato pela mesma 
 regra das duplicatas parciais, que é manter apenas os valores positivos.
 */
-
-
--- Calculo de mediana e moda para imputação
-SELECT MEDIAN(passenger_count) AS mediana_passageiros, MODE() WITHIN GROUP (ORDER BY store_and_fwd_flag) AS moda_store_and_fwd_flag
-FROM raw_yellow_tripdata;
